@@ -1,0 +1,1889 @@
+openapi: 3.0.0
+info:
+  version: '1.0'
+  title: 'Domino Export API Service'
+  description: ''
+servers:
+  - url: {{ exportServiceHost }}
+paths:
+  /health:
+    get:
+      summary: "Report the service health status"
+      tags:
+        - "Administration"
+      responses:
+        200:
+          description: "Successful report of health"
+          content:
+            application/json:
+              schema: 
+                type: object
+                properties:
+                  overall_healthy: 
+                    description: "All connection tests pass and subsystems are online"
+                    type: boolean
+                  api_version:
+                    description: "Version of the API being served"
+                    type: string
+                    example: "1.0-spec"
+                  health_check_timestamp:
+                    description: "Timestamp of the last health check"
+                    type: string
+                    example: "2020-04-14 19:50:20.359113+00:00"
+                  domino_platform_connection_healthy:
+                    description: "Connection to Domino Platform is healthy using <Domino Hostname>/health"
+                    type: boolean
+                  domino_registry_connection_healthy:
+                    description: "Connection and authentication to Domino Docker Registry is healthy. Validated using \"docker login <registry>\" periodically or if any \"docker pull\" fails"
+                    type: boolean
+                  s3_connection_healthy:
+                    description: "Connection and authentication to S3 bucket is healthy. Validated using periodic S3 list on bucket or if any S3 bucket read/write operation fails."
+                    type: boolean
+                  external_registry_connection_healthy:
+                    description: "Connection and authentication to External Docker Registry is healthy. Validated using \"docker login <registry>\" periodically or if any \"docker push\" fails"
+                    type: boolean
+                  last_successful_export_job_timestamp:
+                    description: "Timestamp of the last successful export job"
+                    type: string
+                    example: "2020-04-14 19:50:20.359113+00:00"
+  /v1/projects/create:
+    post:
+      summary: "Schedule a new project export"
+      tags:
+        - "Projects"
+      parameters:
+        - in: header
+          name: X-Domino-Api-Key
+          description: "The Domino API Key to use for authentication"
+          schema:
+            type: string
+            example: "900a9b8611b9b11ec9f1a93cc758321603be3f9f84fabd87e6f5538f3c83dd7a"
+          required: true
+      requestBody:
+        description: "Parameters to create a new scheduled export job"
+        required: true
+        content:
+          application/json:
+            schema: 
+              type: object
+              properties:
+                username: 
+                  description: "The Domino username (or organization name) to use for scheduled job"
+                  type: string
+                  example: "phighley"
+                project_name:
+                  description: "The Domino project name to use for scheduled job"
+                  type: string
+                  example: "demo-alpha"
+                export_group_name:
+                  description: "The external group/owner name to use when exporting project files and Docker images"
+                  type: string
+                  example: "dci.hpc.eo.system.testing"
+                export_project_name:
+                  description: "The external project name to use when exporting project files and Docker images"
+                  type: string
+                  example: "alphademo"
+              required:
+                - username
+                - project_name
+                - export_group_name
+                - export_project_name
+      responses:
+        201:
+          description: "Successful creation of export job"
+          content:
+            application/json:
+              schema: 
+                type: object
+                properties:
+                  success: 
+                    description: "Success of the creation of the scheduled export job"
+                    type: boolean
+                    example: true
+                  message:
+                    description: "A warning or error message associated with a failed export job creation"
+                    type: string
+                    example: null
+                  export_id:
+                    description: "The scheduled export job ID"
+                    type: string
+                    example: "cc03e747a6afbbcbf8be7668acfebee5"
+                  export_frequency_seconds:
+                    description: "The frequency (in seconds) of how often the scheduled export job will run"
+                    type: integer
+                    example: 300
+        400:
+          description: "Malformed or bad input when trying to schedule a new job"
+          content:
+            application/json:
+              schema: 
+                type: object
+                properties:
+                  success: 
+                    description: "Success of the creation of the scheduled export job"
+                    type: boolean
+                    example: false
+                  message:
+                    description: "A warning or error message associated with a failed export job creation"
+                    type: string
+                    example: "The input supplied is invalid: specified Domino project does not exist"
+                  export_id:
+                    description: "The scheduled export job ID"
+                    type: string
+                    example: null
+                  export_frequency_seconds:
+                    description: "The frequency (in seconds) of how often the scheduled export job will run"
+                    type: integer
+                    example: null
+        401:
+          description: "Domino API Key does not give you access to the Domino project"
+          content:
+            application/json:
+              schema: 
+                type: object
+                properties:
+                  success: 
+                    description: "Success of the creation of the scheduled export job"
+                    type: boolean
+                    example: false
+                  message:
+                    description: "A warning or error message associated with a failed export job creation"
+                    type: string
+                    example: "Your Domino API Key does not give you access to specified project"
+                  export_id:
+                    description: "The scheduled export job ID"
+                    type: string
+                    example: null
+                  export_frequency_seconds:
+                    description: "The frequency (in seconds) of how often the scheduled export job will run"
+                    type: integer
+                    example: null
+        409:
+          description: "There is a conflict with another scheduld job. This could happen if either Domino username/project name or the export group name/project name already exists as part of another export job"
+          content:
+            application/json:
+              schema: 
+                type: object
+                properties:
+                  success: 
+                    description: "Success of the creation of the scheduled export job"
+                    type: boolean
+                    example: false
+                  message:
+                    description: "A warning or error message associated with a failed export job creation"
+                    type: string
+                    example: "The specified Domino username and project are already being exported as part of another scheduld job"
+                  export_id:
+                    description: "The scheduled export job ID"
+                    type: string
+                    example: null
+                  export_frequency_seconds:
+                    description: "The frequency (in seconds) of how often the scheduled export job will run"
+                    type: integer
+                    example: null
+        503:
+          description: "Service error encountered while creating the new export job"
+          content:
+            application/json:
+              schema: 
+                type: object
+                properties:
+                  success: 
+                    description: "Success of the creation of the scheduled export job"
+                    type: boolean
+                    example: false
+                  message:
+                    description: "A warning or error message associated with a failed export job creation"
+                    type: string
+                    example: Disk is full
+                  export_id:
+                    description: "The scheduled export job ID"
+                    type: string
+                    example: null
+                  export_frequency_seconds:
+                    description: "The frequency (in seconds) of how often the scheduled export job will run"
+                    type: integer
+                    example: null
+  /v1/projects/update/{export_id}:
+    put:
+      summary: "Update an existing project export job"
+      tags:
+        - "Projects"
+      parameters:
+        - in: path
+          name: export_id
+          description: "The scheduled export job ID"
+          schema:
+            type: string
+          example: "cc03e747a6afbbcbf8be7668acfebee5"
+          required: true
+        - in: header
+          name: X-Domino-Api-Key
+          description: "The Domino API Key to use for authentication"
+          schema:
+            type: string
+            example: "900a9b8611b9b11ec9f1a93cc758321603be3f9f84fabd87e6f5538f3c83dd7a"
+          required: true
+      requestBody:
+        description: "JSON object to update an existing scheduled export job"
+        required: true
+        content:
+          application/json:
+            schema: 
+              type: object
+              properties:
+                update_api_key: 
+                  description: "Replace the scheduled export job's Domino API Key with the key specified in the \"X-Domino-Api-Key\" header"
+                  type: boolean
+                  example: False
+                export_group_name:
+                  description: "The group/owner name to use when exporting project files and Docker images. Either ommit this key/value or specify null to avoid changing the scheduled export job's export_group_name."
+                  type: string
+                  example: "dci.hpc.eo.system.prod"
+                export_project_name:
+                  description: "The project name to use when exporting project files and Docker images. Either ommit this key/value or specify null to avoid changing the scheduled export job's export_project_name."
+                  type: string
+                  example: null
+                disabled:
+                  descrption: "Set the project export as disabled (True) or enabled (False) from running"
+                  type: boolean
+                  example: False
+      responses:
+        200:
+          description: "Successful update of export job"
+          content:
+            application/json:
+              schema: 
+                type: object
+                properties:
+                  success: 
+                    description: "Success of the update to the scheduled export job"
+                    type: boolean
+                    example: true
+                  message:
+                    description: "A warning or error message associated with a failed export job update"
+                    type: string
+                    example: null
+                  export_id:
+                    description: "The scheduled export job ID"
+                    type: string
+                    example: "cc03e747a6afbbcbf8be7668acfebee5"
+                  export_frequency_seconds:
+                    description: "The frequency (in seconds) of how often the scheduled export job will run"
+                    type: integer
+                    example: 300
+        400:
+          description: "Malformed input when trying to update an existing job"
+          content:
+            application/json:
+              schema: 
+                type: object
+                properties:
+                  success: 
+                    description: "Success of the update to the scheduled export job"
+                    type: boolean
+                    example: false
+                  message:
+                    description: "A warning or error message associated with a failed export job update"
+                    type: string
+                    example: "The input supplied is invalid: JSON format is unreadable"
+                  export_id:
+                    description: "The scheduled export job ID"
+                    type: string
+                    example: null
+                  export_frequency_seconds:
+                    description: "The frequency (in seconds) of how often the scheduled export job will run"
+                    type: integer
+                    example: null
+        401:
+          description: "Domino API Key does not give you access to the Domino project"
+          content:
+            application/json:
+              schema: 
+                type: object
+                properties:
+                  success: 
+                    description: "Success of the update to the scheduled export job"
+                    type: boolean
+                    example: false
+                  message:
+                    description: "A warning or error message associated with a failed export job update"
+                    type: string
+                    example: "Your Domino API Key does not give you access to specified project"
+                  export_id:
+                    description: "The scheduled export job ID"
+                    type: string
+                    example: null
+                  export_frequency_seconds:
+                    description: "The frequency (in seconds) of how often the scheduled export job will run"
+                    type: integer
+                    example: null
+        404:
+          description: "The specified export ID does not exist"
+          content:
+            application/json:
+              schema: 
+                type: object
+                properties:
+                  success: 
+                    description: "Success of the update to the scheduled export job"
+                    type: boolean
+                    example: false
+                  message:
+                    description: "A warning or error message associated with a failed export job update"
+                    type: string
+                    example: "The specified export ID does not exist"
+                  export_id:
+                    description: "The scheduled export job ID"
+                    type: string
+                    example: null
+                  export_frequency_seconds:
+                    description: "The frequency (in seconds) of how often the scheduled export job will run"
+                    type: integer
+                    example: null
+        503:
+          description: "Service error encountered while updating the export job"
+          content:
+            application/json:
+              schema: 
+                type: object
+                properties:
+                  success: 
+                    description: "Success of the update to the scheduled export job"
+                    type: boolean
+                    example: false
+                  message:
+                    description: "A warning or error message associated with a failed export job update"
+                    type: string
+                    example: "Disk is full"
+                  export_id:
+                    description: "The scheduled export job ID"
+                    type: string
+                    example: null
+                  export_frequency_seconds:
+                    description: "The frequency (in seconds) of how often the scheduled export job will run"
+                    type: integer
+                    example: null
+  /v1/projects/status:
+    get:
+      summary: "Get a list of latest status for all of the scheduled export jobs that specified Domino API Key has access to"
+      tags:
+        - Projects
+      parameters:
+        - in: header
+          name: X-Domino-Api-Key
+          description: "The Domino API Key to use for authentication"
+          schema:
+            type: string
+            example: "900a9b8611b9b11ec9f1a93cc758321603be3f9f84fabd87e6f5538f3c83dd7a"
+          required: true
+      responses:
+        200:
+          description: "Successful gathering the status of export jobs"
+          content:
+            application/json:
+              schema: 
+                type: array
+                items:
+                  type: object
+                  properties:
+                    timestamp: 
+                      description: "The timestamp of the last execution of the scheduled export job"
+                      type: string
+                    export_id:
+                      description: "The scheduled export job ID"
+                      type: string
+                    status:
+                      description: "The status message of the success of the scheduled export job"
+                      type: string
+                    error_code:
+                      description: |
+                        The error code associated with the scheduled export job
+                        
+                        0 - success
+                        
+                        100 - error pulling files from Domino project
+                        
+                        105 - error pushing files to external file storage
+                        
+                        110 - error pulling Docker image from Domino registry
+                        
+                        115 - error pushing Docker image to exteranl Docker registry
+                        
+                        200 - Domino API key associated with scheduled export job is no longer valid
+                        
+                        205 - Unknown Domino API error
+                        
+                        300 - Unknown error
+                      type: integer
+                    error_message:
+                      description: "The error message associated with the scheduled export job"
+                      type: string
+                    export_frequency_seconds:
+                      description: "The frequency (in seconds) of how often the scheduled export job will run"
+                      type: integer
+                    domino_username:
+                      description: "The Domino username (or organization name) used for scheduled export job"
+                      type: string
+                    domino_project_name:
+                      description: "The Domino project name used for scheduled export job"
+                      type: string
+                    domino_image_environment_name:
+                      description: "The Domino Compute Environment human-readble name and revision number exported"
+                      type: string
+                    export_group_name:
+                      description: "The external group/owner name used when exporting Domino project files and Docker images"
+                      type: string
+                    export_project_name:
+                      description: "The external project name used when exporting Domino project files and Docker images"
+                      type: string
+                    project_export_location:
+                      description: "The full path to the external file stoage location where Domino project files are stored"
+                      type: string
+                    project_export_runtime_seconds:
+                      description: "How long the last Project File export job took to execute (in seconds)"
+                      type: integer
+                    image_export_location:
+                      description: "A list of Docker images exported as part of the scheduled export job"
+                      type: array
+                      items:
+                        type: string
+                    image_export_runtime_seconds:
+                      description: "How long the last image export job took to execute (in seconds)"
+                      type: integer
+                example:
+                  - timestamp: "2020-04-10 14:47:26.016203+00:00"
+                    export_id: "cc03e747a6afbbcbf8be7668acfebee5"
+                    status: "error"
+                    error_code: 200
+                    error_message: "Domino API token is not valid. Please update the Domino API token using the scheduled job with the update API."
+                    export_frequency_seconds: 300
+                    domino_username: "phighley"
+                    domino_project_name: "demo-alpha"
+                    domino_image_environment_name: "Paul's Demo Env - Revision 3"
+                    export_group_name: "dci.hpc.eo.system.testing"
+                    export_project_name: "alphademo"
+                    project_export_location: null
+                    project_export_runtime_seconds: null
+                    image_export_location: null
+                  - timestamp: "2020-04-10 14:42:15.016203+00:00"
+                    export_id: "cc03e747a6afbbcbf8be7668acfebee5"
+                    status: "success"
+                    error_code: 0
+                    error_message: null
+                    export_frequency_seconds: 300
+                    domino_username: "phighley"
+                    domino_project_name: "demo-alpha"
+                    domino_image_environment_name: "Paul's Demo Env - Revision 3"
+                    export_group_name: "dci.hpc.eo.system.testing"
+                    export_project_name: "alphademo"
+                    project_export_location: "s3://domino-lmco-test-mars/dci.hpc.eo.system.testing/alphademo/latest"
+                    project_export_runtime_seconds: 385
+                    image_export_location: ["1234567890.dkr.ecr.region.amazonaws.com/mars:dci.hpc.eo.system.testing-alphademo-latest", "1234567890.dkr.ecr.region.amazonaws.com/mars:dci.hpc.eo.system.testing-alphademo-5e8e6713c9e77c0006cf888f-v3"]
+                    image_export_runtime_seconds: 2154
+        401:
+          description: "Domino API Key does not give you access to any Domino projects"
+          content:
+            application/json:
+              schema: 
+                type: array
+                items:
+                  type: string
+                example: []
+  /v1/projects/status/{export_id}:
+    get:
+      summary: "Get a the latest status of a scheduled export job by export_id"
+      tags:
+        - Projects
+      parameters:
+        - in: path
+          name: export_id
+          description: "The scheduled export job ID"
+          schema:
+            type: string
+          example: "cc03e747a6afbbcbf8be7668acfebee5"
+          required: true
+        - in: header
+          name: X-Domino-Api-Key
+          description: "The Domino API Key to use for authentication"
+          schema:
+            type: string
+            example: "900a9b8611b9b11ec9f1a93cc758321603be3f9f84fabd87e6f5538f3c83dd7a"
+          required: true
+      responses:
+        200:
+          description: "Successful gathering the status of the export job"
+          content:
+            application/json:
+              schema: 
+                type: array
+                items:
+                  type: object
+                  properties:
+                    timestamp: 
+                      description: "The timestamp of the last execution of the scheduled export job"
+                      type: string
+                    export_id:
+                      description: "The scheduled export job ID"
+                      type: string
+                    status:
+                      description: "The status message of the success of the scheduled export job"
+                      type: string
+                    error_code:
+                      description: |
+                        The error code associated with the scheduled export job
+                        
+                        0 - success
+                        
+                        100 - error pulling files from Domino project
+                        
+                        105 - error pushing files to external file storage
+                        
+                        110 - error pulling Docker image from Domino registry
+                        
+                        115 - error pushing Docker image to exteranl Docker registry
+                        
+                        200 - Domino API key associated with scheduled export job is no longer valid
+                        
+                        205 - Unknown Domino API error
+                        
+                        300 - Unknown error
+                      type: integer
+                    error_message:
+                      description: "The error message associated with the scheduled export job"
+                      type: string
+                    export_frequency_seconds:
+                      description: "The frequency (in seconds) of how often the scheduled export job will run"
+                      type: integer
+                    domino_username:
+                      description: "The Domino username (or organization name) used for scheduled export job"
+                      type: string
+                    domino_project_name:
+                      description: "The Domino project name used for scheduled export job"
+                      type: string
+                    domino_image_environment_name:
+                      description: "The Domino Compute Environment human-readble name and revision number exported"
+                      type: string
+                    export_group_name:
+                      description: "The external group/owner name used when exporting Domino project files and Docker images"
+                      type: string
+                    export_project_name:
+                      description: "The external project name used when exporting Domino project files and Docker images"
+                      type: string
+                    project_export_location:
+                      description: "The full path to the external file stoage location where Domino project files are stored"
+                      type: string
+                    project_export_runtime_seconds:
+                      description: "How long the last Project File export job took to execute (in seconds)"
+                      type: integer
+                    image_export_location:
+                      description: "A list of Docker images exported as part of the scheduled export job"
+                      type: array
+                      items:
+                        type: string
+                    image_export_runtime_seconds:
+                      description: "How long the last image export job took to execute (in seconds)"
+                      type: integer
+                example:
+                  - timestamp: "2020-04-10 14:42:15.016203+00:00"
+                    export_id: "cc03e747a6afbbcbf8be7668acfebee5"
+                    status: "success"
+                    error_code: 0
+                    error_message: null
+                    export_frequency_seconds: 300
+                    domino_username: "phighley"
+                    domino_project_name: "demo-alpha"
+                    domino_image_environment_name: "Paul's Demo Env - Revision 3"
+                    export_group_name: "dci.hpc.eo.system.testing"
+                    export_project_name: "alphademo"
+                    project_export_location: "s3://domino-lmco-test-mars/dci.hpc.eo.system.testing/alphademo/latest"
+                    project_export_runtime_seconds: 385
+                    image_export_location: ["1234567890.dkr.ecr.region.amazonaws.com/mars:dci.hpc.eo.system.testing-alphademo-latest", "1234567890.dkr.ecr.region.amazonaws.com/mars:dci.hpc.eo.system.testing-alphademo-5e8e6713c9e77c0006cf888f-v3"]
+                    image_export_runtime_seconds: 2154
+        401:
+          description: "Domino API Key does not give you access to any Domino projects"
+          content:
+            application/json:
+              schema: 
+                type: array
+                items:
+                  type: string
+                example: []
+  /v1/projects/status/{username}:
+    get:
+      summary: "Get a the latest status of a scheduled export jobs by Domino username"
+      tags:
+        - Projects
+      parameters:
+        - in: path
+          name: username
+          description: "The Domino username"
+          schema:
+            type: string
+          example: "phighley"
+          required: true
+        - in: header
+          name: X-Domino-Api-Key
+          description: "The Domino API Key to use for authentication"
+          schema:
+            type: string
+            example: "900a9b8611b9b11ec9f1a93cc758321603be3f9f84fabd87e6f5538f3c83dd7a"
+          required: true
+      responses:
+        200:
+          description: "Successful gathering the status of the export jobs"
+          content:
+            application/json:
+              schema: 
+                type: array
+                items:
+                  type: object
+                  properties:
+                    timestamp: 
+                      description: "The timestamp of the last execution of the scheduled export job"
+                      type: string
+                    export_id:
+                      description: "The scheduled export job ID"
+                      type: string
+                    status:
+                      description: "The status message of the success of the scheduled export job"
+                      type: string
+                    error_code:
+                      description: |
+                        The error code associated with the scheduled export job
+                        
+                        0 - success
+                        
+                        100 - error pulling files from Domino project
+                        
+                        105 - error pushing files to external file storage
+                        
+                        110 - error pulling Docker image from Domino registry
+                        
+                        115 - error pushing Docker image to exteranl Docker registry
+                        
+                        200 - Domino API key associated with scheduled export job is no longer valid
+                        
+                        205 - Unknown Domino API error
+                        
+                        300 - Unknown error
+                      type: integer
+                    error_message:
+                      description: "The error message associated with the scheduled export job"
+                      type: string
+                    export_frequency_seconds:
+                      description: "The frequency (in seconds) of how often the scheduled export job will run"
+                      type: integer
+                    domino_username:
+                      description: "The Domino username (or organization name) used for scheduled export job"
+                      type: string
+                    domino_project_name:
+                      description: "The Domino project name used for scheduled export job"
+                      type: string
+                    domino_image_environment_name:
+                      description: "The Domino Compute Environment human-readble name and revision number exported"
+                      type: string
+                    export_group_name:
+                      description: "The external group/owner name used when exporting Domino project files and Docker images"
+                      type: string
+                    export_project_name:
+                      description: "The external project name used when exporting Domino project files and Docker images"
+                      type: string
+                    project_export_location:
+                      description: "The full path to the external file stoage location where Domino project files are stored"
+                      type: string
+                    project_export_runtime_seconds:
+                      description: "How long the last Project File export job took to execute (in seconds)"
+                      type: integer
+                    image_export_location:
+                      description: "A list of Docker images exported as part of the scheduled export job"
+                      type: array
+                      items:
+                        type: string
+                    image_export_runtime_seconds:
+                      description: "How long the last image export job took to execute (in seconds)"
+                      type: integer
+                example:
+                  - timestamp: "2020-04-10 14:42:15.016203+00:00"
+                    export_id: "cc03e747a6afbbcbf8be7668acfebee5"
+                    status: "success"
+                    error_code: 0
+                    error_message: null
+                    export_frequency_seconds: 300
+                    domino_username: "phighley"
+                    domino_project_name: "demo-alpha"
+                    domino_image_environment_name: "Paul's Demo Env - Revision 3"
+                    export_group_name: "dci.hpc.eo.system.testing"
+                    export_project_name: "alphademo"
+                    project_export_location: "s3://domino-lmco-test-mars/dci.hpc.eo.system.testing/alphademo/latest"
+                    project_export_runtime_seconds: 385
+                    image_export_location: ["1234567890.dkr.ecr.region.amazonaws.com/mars:dci.hpc.eo.system.testing-alphademo-latest", "1234567890.dkr.ecr.region.amazonaws.com/mars:dci.hpc.eo.system.testing-alphademo-5e8e6713c9e77c0006cf888f-v3"]
+                    image_export_runtime_seconds: 2154
+                  - timestamp: "2020-04-10 14:42:14.011301+00:00"
+                    export_id: "d1a43ce4bdbc5584311216a89fdec7e2"
+                    status: "success"
+                    error_code: 0
+                    error_message: null
+                    export_frequency_seconds: 300
+                    domino_username: "phighley"
+                    domino_project_name: "demo-beta"
+                    domino_image_environment_name: "Domino Analytics Distribution Py3.7 R3.6 - Revision 13"
+                    export_group_name: "dci.hpc.eo.system.prod"
+                    export_project_name: "betademo"
+                    project_export_location: "s3://domino-lmco-test-mars/dci.hpc.eo.system.prod/betademo/latest"
+                    project_export_runtime_seconds: 943
+                    image_export_location: "1234567890.dkr.ecr.region.amazonaws.com/mars:dci.hpc.eo.system.prod-betademo-3aace6c4f4634caeeaf11771-v13"
+                    image_export_runtime_seconds: 74
+        401:
+          description: "Domino API Key does not give you access to any Domino projects"
+          content:
+            application/json:
+              schema: 
+                type: array
+                items:
+                  type: string
+                example: []
+  /v1/projects/status/{username}/{project_name}:
+    get:
+      summary: "Get a the latest status of a scheduled export job by Domino username and project name"
+      tags:
+        - Projects
+      parameters:
+        - in: path
+          name: username
+          description: "The Domino username"
+          schema:
+            type: string
+          example: "phighley"
+          required: true
+        - in: path
+          name: project_name
+          description: "The Domino project name"
+          schema:
+            type: string
+          example: "demo-alpha"
+          required: true
+        - in: header
+          name: X-Domino-Api-Key
+          description: "The Domino API Key to use for authentication"
+          schema:
+            type: string
+            example: "900a9b8611b9b11ec9f1a93cc758321603be3f9f84fabd87e6f5538f3c83dd7a"
+          required: true
+      responses:
+        200:
+          description: "Successful gathering the status of the export jobs"
+          content:
+            application/json:
+              schema: 
+                type: array
+                items:
+                  type: object
+                  properties:
+                    timestamp: 
+                      description: "The timestamp of the last execution of the scheduled export job"
+                      type: string
+                    export_id:
+                      description: "The scheduled export job ID"
+                      type: string
+                    status:
+                      description: "The status message of the success of the scheduled export job"
+                      type: string
+                    error_code:
+                      description: |
+                        The error code associated with the scheduled export job
+                        
+                        0 - success
+                        
+                        100 - error pulling files from Domino project
+                        
+                        105 - error pushing files to external file storage
+                        
+                        110 - error pulling Docker image from Domino registry
+                        
+                        115 - error pushing Docker image to exteranl Docker registry
+                        
+                        200 - Domino API key associated with scheduled export job is no longer valid
+                        
+                        205 - Unknown Domino API error
+                        
+                        300 - Unknown error
+                      type: integer
+                    error_message:
+                      description: "The error message associated with the scheduled export job"
+                      type: string
+                    export_frequency_seconds:
+                      description: "The frequency (in seconds) of how often the scheduled export job will run"
+                      type: integer
+                    domino_username:
+                      description: "The Domino username (or organization name) used for scheduled export job"
+                      type: string
+                    domino_project_name:
+                      description: "The Domino project name used for scheduled export job"
+                      type: string
+                    domino_image_environment_name:
+                      description: "The Domino Compute Environment human-readble name and revision number exported"
+                      type: string
+                    export_group_name:
+                      description: "The external group/owner name used when exporting Domino project files and Docker images"
+                      type: string
+                    export_project_name:
+                      description: "The external project name used when exporting Domino project files and Docker images"
+                      type: string
+                    project_export_location:
+                      description: "The full path to the external file stoage location where Domino project files are stored"
+                      type: string
+                    project_export_runtime_seconds:
+                      description: "How long the last Project File export job took to execute (in seconds)"
+                      type: integer
+                    image_export_location:
+                      description: "A list of Docker images exported as part of the scheduled export job"
+                      type: array
+                      items:
+                        type: string
+                    image_export_runtime_seconds:
+                      description: "How long the last image export job took to execute (in seconds)"
+                      type: integer
+                example:
+                  - timestamp: "2020-04-10 14:42:15.016203+00:00"
+                    export_id: "cc03e747a6afbbcbf8be7668acfebee5"
+                    status: "success"
+                    error_code: 0
+                    error_message: null
+                    export_frequency_seconds: 300
+                    domino_username: "phighley"
+                    domino_project_name: "demo-alpha"
+                    domino_image_environment_name: "Paul's Demo Env - Revision 3"
+                    export_group_name: "dci.hpc.eo.system.testing"
+                    export_project_name: "alphademo"
+                    project_export_location: "s3://domino-lmco-test-mars/dci.hpc.eo.system.testing/alphademo/latest"
+                    project_export_runtime_seconds: 385
+                    image_export_location: ["1234567890.dkr.ecr.region.amazonaws.com/mars:dci.hpc.eo.system.testing-alphademo-latest", "1234567890.dkr.ecr.region.amazonaws.com/mars:dci.hpc.eo.system.testing-alphademo-5e8e6713c9e77c0006cf888f-v3"]
+                    image_export_runtime_seconds: 2154
+        401:
+          description: "Domino API Key does not give you access to any Domino projects"
+          content:
+            application/json:
+              schema: 
+                type: array
+                items:
+                  type: string
+                example: []
+  /v1/images/create:
+    post:
+      summary: "Schedule a new Compute Environment export"
+      tags:
+        - "Compute Environments"
+      parameters:
+        - in: header
+          name: X-Domino-Api-Key
+          description: "The Domino API Key to use for authentication"
+          schema:
+            type: string
+            example: "900a9b8611b9b11ec9f1a93cc758321603be3f9f84fabd87e6f5538f3c83dd7a"
+          required: true
+      requestBody:
+        description: "Parameters to create a new scheduled export job"
+        required: true
+        content:
+          application/json:
+            schema: 
+              type: object
+              properties:
+                compute_environment_id: 
+                  description: "The Domino Compute Environment ID to use for scheduled job"
+                  type: string
+                  example: "5ac7e8ffe4b085124ffb64d6"
+                export_group_name:
+                  description: "The external group/owner name to use when exporting Docker images. If omitted, this value defaults to \"public\"."
+                  type: string
+                  example: "dci.hpc.eo.system.testing"
+                export_project_name:
+                  description: "The external project name to use when exporting project files and Docker images. If omitted, this value defaults to \"domino\"."
+                  type: string
+                  example: "alphademo"
+              required:
+                - compute_environment_id
+      responses:
+        201:
+          description: "Successful creation of export job"
+          content:
+            application/json:
+              schema: 
+                type: object
+                properties:
+                  success: 
+                    description: "Success of the creation of the scheduled export job"
+                    type: boolean
+                    example: true
+                  message:
+                    description: "A warning or error message associated with a failed export job creation"
+                    type: string
+                    example: null
+                  export_id:
+                    description: "The scheduled export job ID"
+                    type: string
+                    example: "adf844905398c66926861b615a655524"
+                  export_frequency_seconds:
+                    description: "The frequency (in seconds) of how often the scheduled export job will run"
+                    type: integer
+                    example: 300
+        400:
+          description: "Malformed or bad input when trying to schedule a new job"
+          content:
+            application/json:
+              schema: 
+                type: object
+                properties:
+                  success: 
+                    description: "Success of the creation of the scheduled export job"
+                    type: boolean
+                    example: false
+                  message:
+                    description: "A warning or error message associated with a failed export job creation"
+                    type: string
+                    example: "The input supplied is invalid: specified Domino Compute Environment does not exist"
+                  export_id:
+                    description: "The scheduled export job ID"
+                    type: string
+                    example: null
+                  export_frequency_seconds:
+                    description: "The frequency (in seconds) of how often the scheduled export job will run"
+                    type: integer
+                    example: null
+        401:
+          description: "Domino API Key does not give you access to the Domino Compute Environment"
+          content:
+            application/json:
+              schema: 
+                type: object
+                properties:
+                  success: 
+                    description: "Success of the creation of the scheduled export job"
+                    type: boolean
+                    example: false
+                  message:
+                    description: "A warning or error message associated with a failed export job creation"
+                    type: string
+                    example: "Your Domino API Key does not give you access to specified Compute Environment"
+                  export_id:
+                    description: "The scheduled export job ID"
+                    type: string
+                    example: null
+                  export_frequency_seconds:
+                    description: "The frequency (in seconds) of how often the scheduled export job will run"
+                    type: integer
+                    example: null
+        409:
+          description: "There is a conflict with another scheduld job. This could happen if either Domino Compute Environment ID or the export group name/project name already exists as part of another export job"
+          content:
+            application/json:
+              schema: 
+                type: object
+                properties:
+                  success: 
+                    description: "Success of the creation of the scheduled export job"
+                    type: boolean
+                    example: false
+                  message:
+                    description: "A warning or error message associated with a failed export job creation"
+                    type: string
+                    example: "The specified Domino Compute Environment is already being exported as part of another scheduld job"
+                  export_id:
+                    description: "The scheduled export job ID"
+                    type: string
+                    example: null
+                  export_frequency_seconds:
+                    description: "The frequency (in seconds) of how often the scheduled export job will run"
+                    type: integer
+                    example: null
+        503:
+          description: "Service error encountered while creating the new export job"
+          content:
+            application/json:
+              schema: 
+                type: object
+                properties:
+                  success: 
+                    description: "Success of the creation of the scheduled export job"
+                    type: boolean
+                    example: false
+                  message:
+                    description: "A warning or error message associated with a failed export job creation"
+                    type: string
+                    example: Disk is full
+                  export_id:
+                    description: "The scheduled export job ID"
+                    type: string
+                    example: null
+                  export_frequency_seconds:
+                    description: "The frequency (in seconds) of how often the scheduled export job will run"
+                    type: integer
+                    example: null
+  /v1/images/update/{export_id}:
+    put:
+      summary: "Update an existing Compute Environment export job by a scheduled export job ID"
+      tags:
+        - "Compute Environments"
+      parameters:
+        - in: path
+          name: export_id
+          description: "The scheduled export job ID"
+          schema:
+            type: string
+          example: "adf844905398c66926861b615a655524"
+          required: true
+        - in: header
+          name: X-Domino-Api-Key
+          description: "The Domino API Key to use for authentication"
+          schema:
+            type: string
+            example: "900a9b8611b9b11ec9f1a93cc758321603be3f9f84fabd87e6f5538f3c83dd7a"
+          required: true
+      requestBody:
+        description: "JSON object to update an existing scheduled export job"
+        required: true
+        content:
+          application/json:
+            schema: 
+              type: object
+              properties:
+                update_api_key: 
+                  description: "Replace the scheduled export job's Domino API Key with the key specified in the \"X-Domino-Api-Key\" header"
+                  type: boolean
+                export_group_name:
+                  description: "The external group/owner name to use when exporting the Docker image. Either ommit this key/value or specify null to avoid changing the scheduled export job's export_group_name."
+                  type: string
+                  example: "dci.hpc.eo.system.prod"
+                export_project_name:
+                  description: "The external project name to use when exporting the Docker image. Either ommit this key/value or specify null to avoid changing the scheduled export job's export_project_name."
+                  type: string
+                  example: null
+              required:
+                - update_api_key
+      responses:
+        200:
+          description: "Successful update of export job"
+          content:
+            application/json:
+              schema: 
+                type: object
+                properties:
+                  success: 
+                    description: "Success of the update to the scheduled export job"
+                    type: boolean
+                    example: true
+                  message:
+                    description: "A warning or error message associated with a failed export job update"
+                    type: string
+                    example: null
+                  export_id:
+                    description: "The scheduled export job ID"
+                    type: string
+                    example: "adf844905398c66926861b615a655524"
+                  export_frequency_seconds:
+                    description: "The frequency (in seconds) of how often the scheduled export job will run"
+                    type: integer
+                    example: 300
+        400:
+          description: "Malformed input when trying to update an existing job"
+          content:
+            application/json:
+              schema: 
+                type: object
+                properties:
+                  success: 
+                    description: "Success of the update to the scheduled export job"
+                    type: boolean
+                    example: false
+                  message:
+                    description: "A warning or error message associated with a failed export job update"
+                    type: string
+                    example: "The input supplied is invalid: JSON format is unreadable"
+                  export_id:
+                    description: "The scheduled export job ID"
+                    type: string
+                    example: null
+                  export_frequency_seconds:
+                    description: "The frequency (in seconds) of how often the scheduled export job will run"
+                    type: integer
+                    example: null
+        401:
+          description: "Domino API Key does not give you access to the Domino Compute Environment"
+          content:
+            application/json:
+              schema: 
+                type: object
+                properties:
+                  success: 
+                    description: "Success of the update to the scheduled export job"
+                    type: boolean
+                    example: false
+                  message:
+                    description: "A warning or error message associated with a failed export job update"
+                    type: string
+                    example: "Your Domino API Key does not give you access to specified Compute Environment"
+                  export_id:
+                    description: "The scheduled export job ID"
+                    type: string
+                    example: null
+                  export_frequency_seconds:
+                    description: "The frequency (in seconds) of how often the scheduled export job will run"
+                    type: integer
+                    example: null
+        404:
+          description: "The specified export ID does not exist"
+          content:
+            application/json:
+              schema: 
+                type: object
+                properties:
+                  success: 
+                    description: "Success of the update to the scheduled export job"
+                    type: boolean
+                    example: false
+                  message:
+                    description: "A warning or error message associated with a failed export job update"
+                    type: string
+                    example: "The specified export ID does not exist"
+                  export_id:
+                    description: "The scheduled export job ID"
+                    type: string
+                    example: null
+                  export_frequency_seconds:
+                    description: "The frequency (in seconds) of how often the scheduled export job will run"
+                    type: integer
+                    example: null
+        503:
+          description: "Service error encountered while updating the export job"
+          content:
+            application/json:
+              schema: 
+                type: object
+                properties:
+                  success: 
+                    description: "Success of the update to the scheduled export job"
+                    type: boolean
+                    example: false
+                  message:
+                    description: "A warning or error message associated with a failed export job update"
+                    type: string
+                    example: "Disk is full"
+                  export_id:
+                    description: "The scheduled export job ID"
+                    type: string
+                    example: null
+                  export_frequency_seconds:
+                    description: "The frequency (in seconds) of how often the scheduled export job will run"
+                    type: integer
+                    example: null
+  /v1/images/update/{compute_environment_id}:
+    put:
+      summary: "Update an existing Compute Environment export job by a Domino Compute Environment ID"
+      tags:
+        - "Compute Environments"
+      parameters:
+        - in: path
+          name: compute_environment_id
+          description: "The Domino Compute Environment ID"
+          schema:
+            type: string
+          example: "5ac7e8ffe4b085124ffb64d6"
+          required: true
+        - in: header
+          name: X-Domino-Api-Key
+          description: "The Domino API Key to use for authentication"
+          schema:
+            type: string
+            example: "900a9b8611b9b11ec9f1a93cc758321603be3f9f84fabd87e6f5538f3c83dd7a"
+          required: true
+      requestBody:
+        description: "JSON object to update an existing scheduled export job"
+        required: true
+        content:
+          application/json:
+            schema: 
+              type: object
+              properties:
+                update_api_key: 
+                  description: "Replace the scheduled export job's Domino API Key with the key specified in the \"X-Domino-Api-Key\" header"
+                  type: boolean
+                export_group_name:
+                  description: "The external group/owner name to use when exporting the Docker image. Either ommit this key/value or specify null to avoid changing the scheduled export job's export_group_name."
+                  type: string
+                  example: "dci.hpc.eo.system.prod"
+                export_project_name:
+                  description: "The external project name to use when exporting the Docker image. Either ommit this key/value or specify null to avoid changing the scheduled export job's export_project_name."
+                  type: string
+                  example: null
+              required:
+                - update_api_key
+      responses:
+        200:
+          description: "Successful update of export job"
+          content:
+            application/json:
+              schema: 
+                type: object
+                properties:
+                  success: 
+                    description: "Success of the update to the scheduled export job"
+                    type: boolean
+                    example: true
+                  message:
+                    description: "A warning or error message associated with a failed export job update"
+                    type: string
+                    example: null
+                  export_id:
+                    description: "The scheduled export job ID"
+                    type: string
+                    example: "adf844905398c66926861b615a655524"
+                  export_frequency_seconds:
+                    description: "The frequency (in seconds) of how often the scheduled export job will run"
+                    type: integer
+                    example: 300
+        400:
+          description: "Malformed input when trying to update an existing job"
+          content:
+            application/json:
+              schema: 
+                type: object
+                properties:
+                  success: 
+                    description: "Success of the update to the scheduled export job"
+                    type: boolean
+                    example: false
+                  message:
+                    description: "A warning or error message associated with a failed export job update"
+                    type: string
+                    example: "The input supplied is invalid: JSON format is unreadable"
+                  export_id:
+                    description: "The scheduled export job ID"
+                    type: string
+                    example: null
+                  export_frequency_seconds:
+                    description: "The frequency (in seconds) of how often the scheduled export job will run"
+                    type: integer
+                    example: null
+        401:
+          description: "Domino API Key does not give you access to the Domino Compute Environment"
+          content:
+            application/json:
+              schema: 
+                type: object
+                properties:
+                  success: 
+                    description: "Success of the update to the scheduled export job"
+                    type: boolean
+                    example: false
+                  message:
+                    description: "A warning or error message associated with a failed export job update"
+                    type: string
+                    example: "Your Domino API Key does not give you access to specified Compute Environment"
+                  export_id:
+                    description: "The scheduled export job ID"
+                    type: string
+                    example: null
+                  export_frequency_seconds:
+                    description: "The frequency (in seconds) of how often the scheduled export job will run"
+                    type: integer
+                    example: null
+        404:
+          description: "The specified export ID does not exist"
+          content:
+            application/json:
+              schema: 
+                type: object
+                properties:
+                  success: 
+                    description: "Success of the update to the scheduled export job"
+                    type: boolean
+                    example: false
+                  message:
+                    description: "A warning or error message associated with a failed export job update"
+                    type: string
+                    example: "The specified export ID does not exist"
+                  export_id:
+                    description: "The scheduled export job ID"
+                    type: string
+                    example: null
+                  export_frequency_seconds:
+                    description: "The frequency (in seconds) of how often the scheduled export job will run"
+                    type: integer
+                    example: null
+        503:
+          description: "Service error encountered while updating the export job"
+          content:
+            application/json:
+              schema: 
+                type: object
+                properties:
+                  success: 
+                    description: "Success of the update to the scheduled export job"
+                    type: boolean
+                    example: false
+                  message:
+                    description: "A warning or error message associated with a failed export job update"
+                    type: string
+                    example: "Disk is full"
+                  export_id:
+                    description: "The scheduled export job ID"
+                    type: string
+                    example: null
+                  export_frequency_seconds:
+                    description: "The frequency (in seconds) of how often the scheduled export job will run"
+                    type: integer
+                    example: null
+  /v1/images/status:
+    get:
+      summary: "Get a list of latest status for all of the scheduled export jobs that specified Domino API Key has access to"
+      tags:
+        - "Compute Environments"
+      parameters:
+        - in: header
+          name: X-Domino-Api-Key
+          description: "The Domino API Key to use for authentication"
+          schema:
+            type: string
+            example: "900a9b8611b9b11ec9f1a93cc758321603be3f9f84fabd87e6f5538f3c83dd7a"
+          required: true
+      responses:
+        200:
+          description: "Successful gathering the status of export jobs"
+          content:
+            application/json:
+              schema: 
+                type: array
+                items:
+                  type: object
+                  properties:
+                    timestamp: 
+                      description: "The timestamp of the last execution of the scheduled export job"
+                      type: string
+                    export_id:
+                      description: "The scheduled export job ID"
+                      type: string
+                    status:
+                      description: "The status message of the success of the scheduled export job"
+                      type: string
+                    error_code:
+                      description: |
+                        The error code associated with the scheduled export job
+                        
+                        0 - success
+                                                
+                        110 - error pulling Docker image from Domino registry
+                        
+                        115 - error pushing Docker image to exteranl Docker registry
+                        
+                        200 - Domino API key associated with scheduled export job is no longer valid
+                        
+                        205 - Unknown Domino API error
+                        
+                        300 - Unknown error
+                      type: integer
+                    error_message:
+                      description: "The error message associated with the scheduled export job"
+                      type: string
+                    export_frequency_seconds:
+                      description: "The frequency (in seconds) of how often the scheduled export job will run"
+                      type: integer
+                    compute_environment_id:
+                      description: "The Domino Compute Environment ID used for scheduled export job"
+                      type: string
+                    compute_environment_revision_id:
+                      description: "The Domino Compute Environment revision ID used for scheduled export job"
+                      type: integer
+                    domino_image_environment_name:
+                      description: "The Domino Compute Environment human-readble name and revision number exported"
+                      type: string
+                    export_group_name:
+                      description: "The external group/owner name used when exporting Domino Docker images"
+                      type: string
+                    export_project_name:
+                      description: "The external project name used when exporting Domino Docker images"
+                      type: string
+                    image_export_location:
+                      description: "The Docker Registry URL for the Docker image exported as part of the scheduled export job"
+                      type: string
+                    image_export_runtime_seconds:
+                      description: "How long the last image export job took to execute (in seconds)"
+                      type: integer
+                example:
+                  - timestamp: "2020-04-10 14:47:26.016203+00:00"
+                    export_id: "adf844905398c66926861b615a655524"
+                    status: "error"
+                    error_code: 200
+                    error_message: "Domino API token is not valid. Please update the Domino API token using the scheduled job with the update API."
+                    export_frequency_seconds: 300
+                    compute_environment_id: "5ad8b192e4b0851221987435"
+                    compute_environment_revision_id: 13
+                    domino_image_environment_name: "Domino Analytics Distribution Py3.7 R3.6 - Revision 13"
+                    export_group_name: "public"
+                    export_project_name: "domino"
+                    image_export_location: null
+                    image_export_runtime_seconds: null
+                  - timestamp: "2020-04-10 14:42:15.016203+00:00"
+                    export_id: "adf844905398c66926861b615a655524"
+                    status: "success"
+                    error_code: 0
+                    error_message: null
+                    export_frequency_seconds: 300
+                    compute_environment_id: "5ad8b192e4b0851221987435"
+                    compute_environment_revision_id: 13
+                    domino_image_environment_name: "Domino Analytics Distribution Py3.7 R3.6 - Revision 13"
+                    export_group_name: "public"
+                    export_project_name: "domino"
+                    image_export_location: "1234567890.dkr.ecr.region.amazonaws.com/mars:public-domino-5ad8b192e4b0851221987435-v13"
+                    image_export_runtime_seconds: 7412
+        401:
+          description: "Domino API Key does not give you access to any Domino projects"
+          content:
+            application/json:
+              schema: 
+                type: array
+                items:
+                  type: string
+                example: []
+  /v1/images/status/{export_id}:
+    get:
+      summary: "Get a list of latest status for all of the scheduled export jobs by the scheduled export job ID"
+      tags:
+        - "Compute Environments"
+      parameters:
+        - in: path
+          name: export_id
+          description: "The schedule job export ID"
+          schema:
+            type: string
+          example: "adf844905398c66926861b615a655524"
+          required: true
+        - in: header
+          name: X-Domino-Api-Key
+          description: "The Domino API Key to use for authentication"
+          schema:
+            type: string
+            example: "900a9b8611b9b11ec9f1a93cc758321603be3f9f84fabd87e6f5538f3c83dd7a"
+          required: true
+      responses:
+        200:
+          description: "Successful gathering the status of export jobs"
+          content:
+            application/json:
+              schema: 
+                type: array
+                items:
+                  type: object
+                  properties:
+                    timestamp: 
+                      description: "The timestamp of the last execution of the scheduled export job"
+                      type: string
+                    export_id:
+                      description: "The scheduled export job ID"
+                      type: string
+                    status:
+                      description: "The status message of the success of the scheduled export job"
+                      type: string
+                    error_code:
+                      description: |
+                        The error code associated with the scheduled export job
+                        
+                        0 - success
+                                                
+                        110 - error pulling Docker image from Domino registry
+                        
+                        115 - error pushing Docker image to exteranl Docker registry
+                        
+                        200 - Domino API key associated with scheduled export job is no longer valid
+                        
+                        205 - Unknown Domino API error
+                        
+                        300 - Unknown error
+                      type: integer
+                    error_message:
+                      description: "The error message associated with the scheduled export job"
+                      type: string
+                    export_frequency_seconds:
+                      description: "The frequency (in seconds) of how often the scheduled export job will run"
+                      type: integer
+                    compute_environment_id:
+                      description: "The Domino Compute Environment ID used for scheduled export job"
+                      type: string
+                    compute_environment_revision_id:
+                      description: "The Domino Compute Environment revision ID used for scheduled export job"
+                      type: integer
+                    domino_image_environment_name:
+                      description: "The Domino Compute Environment human-readble name and revision number exported"
+                      type: string
+                    export_group_name:
+                      description: "The external group/owner name used when exporting Domino Docker images"
+                      type: string
+                    export_project_name:
+                      description: "The external project name used when exporting Domino Docker images"
+                      type: string
+                    image_export_location:
+                      description: "The Docker Registry URL for the Docker image exported as part of the scheduled export job"
+                      type: string
+                    image_export_runtime_seconds:
+                      description: "How long the last image export job took to execute (in seconds)"
+                      type: integer
+                example:
+                  - timestamp: "2020-04-10 14:47:26.016203+00:00"
+                    export_id: "adf844905398c66926861b615a655524"
+                    status: "success"
+                    error_code: 0
+                    error_message: null
+                    export_frequency_seconds: 300
+                    compute_environment_id: "5ac7e8ffe4b085124ffb64d6"
+                    compute_environment_revision_id: 3
+                    domino_image_environment_name: "Paul's Demo Env - Revision 3"
+                    export_group_name: "dci.hpc.eo.system.testing"
+                    export_project_name: "alphademo"
+                    image_export_location: 1234567890.dkr.ecr.region.amazonaws.com/mars:dci.hpc.eo.system.testing-alphademo-5ac7e8ffe4b085124ffb64d6-v3"
+                    image_export_runtime_seconds: 7431
+        401:
+          description: "Domino API Key does not give you access to any Domino projects"
+          content:
+            application/json:
+              schema: 
+                type: array
+                items:
+                  type: string
+                example: []
+  /v1/images/status/{compute_environment_id}:
+    get:
+      summary: "Get a list of latest status for all of the scheduled export jobs by the Domino Compute Environment ID"
+      tags:
+        - "Compute Environments"
+      parameters:
+        - in: path
+          name: compute_environment_id
+          description: "The Domino Compute Environment ID"
+          schema:
+            type: string
+          example: "5ac7e8ffe4b085124ffb64d6"
+          required: true
+        - in: header
+          name: X-Domino-Api-Key
+          description: "The Domino API Key to use for authentication"
+          schema:
+            type: string
+            example: "900a9b8611b9b11ec9f1a93cc758321603be3f9f84fabd87e6f5538f3c83dd7a"
+          required: true
+      responses:
+        200:
+          description: "Successful gathering the status of export jobs"
+          content:
+            application/json:
+              schema: 
+                type: array
+                items:
+                  type: object
+                  properties:
+                    timestamp: 
+                      description: "The timestamp of the last execution of the scheduled export job"
+                      type: string
+                    export_id:
+                      description: "The scheduled export job ID"
+                      type: string
+                    status:
+                      description: "The status message of the success of the scheduled export job"
+                      type: string
+                    error_code:
+                      description: |
+                        The error code associated with the scheduled export job
+                        
+                        0 - success
+                                                
+                        110 - error pulling Docker image from Domino registry
+                        
+                        115 - error pushing Docker image to exteranl Docker registry
+                        
+                        200 - Domino API key associated with scheduled export job is no longer valid
+                        
+                        205 - Unknown Domino API error
+                        
+                        300 - Unknown error
+                      type: integer
+                    error_message:
+                      description: "The error message associated with the scheduled export job"
+                      type: string
+                    export_frequency_seconds:
+                      description: "The frequency (in seconds) of how often the scheduled export job will run"
+                      type: integer
+                    compute_environment_id:
+                      description: "The Domino Compute Environment ID used for scheduled export job"
+                      type: string
+                    compute_environment_revision_id:
+                      description: "The Domino Compute Environment revision ID used for scheduled export job"
+                      type: integer
+                    domino_image_environment_name:
+                      description: "The Domino Compute Environment human-readble name and revision number exported"
+                      type: string
+                    export_group_name:
+                      description: "The external group/owner name used when exporting Domino Docker images"
+                      type: string
+                    export_project_name:
+                      description: "The external project name used when exporting Domino Docker images"
+                      type: string
+                    image_export_location:
+                      description: "The Docker Registry URL for the Docker image exported as part of the scheduled export job"
+                      type: string
+                    image_export_runtime_seconds:
+                      description: "How long the last image export job took to execute (in seconds)"
+                      type: integer
+                example:
+                  - timestamp: "2020-04-10 14:47:26.016203+00:00"
+                    export_id: "adf844905398c66926861b615a655524"
+                    status: "success"
+                    error_code: 0
+                    error_message: null
+                    export_frequency_seconds: 300
+                    compute_environment_id: "5ac7e8ffe4b085124ffb64d6"
+                    compute_environment_revision_id: 3
+                    domino_image_environment_name: "Paul's Demo Env - Revision 3"
+                    export_group_name: "dci.hpc.eo.system.testing"
+                    export_project_name: "alphademo"
+                    image_export_location: 1234567890.dkr.ecr.region.amazonaws.com/mars:dci.hpc.eo.system.testing-alphademo-5ac7e8ffe4b085124ffb64d6-v3"
+                    image_export_runtime_seconds: 7431
+        401:
+          description: "Domino API Key does not give you access to any Domino projects"
+          content:
+            application/json:
+              schema: 
+                type: array
+                items:
+                  type: string
+                example: []
+  /v1/images/archive/{export_id}:
+    delete:
+      summary: "Archive an existing Compute Environment export job by the scheduled export job ID"
+      tags:
+        - "Compute Environments"
+      parameters:
+        - in: path
+          name: export_id
+          description: "The scheduled export job ID"
+          schema:
+            type: string
+          example: "adf844905398c66926861b615a655524"
+          required: true
+        - in: header
+          name: X-Domino-Api-Key
+          description: "The Domino API Key to use for authentication"
+          schema:
+            type: string
+            example: "900a9b8611b9b11ec9f1a93cc758321603be3f9f84fabd87e6f5538f3c83dd7a"
+          required: true
+      responses:
+        200:
+          description: "Successful archive of export job"
+          content:
+            application/json:
+              schema: 
+                type: object
+                properties:
+                  success: 
+                    description: "Success of the archive to the scheduled export job"
+                    type: boolean
+                    example: true
+                  message:
+                    description: "A warning or error message associated with a failed export job archive"
+                    type: string
+                    example: null
+                  export_id:
+                    description: "The scheduled export job ID"
+                    type: string
+                    example: "cc03e747a6afbbcbf8be7668acfebee5"
+        400:
+          description: "Malformed input when trying to archive an existing job"
+          content:
+            application/json:
+              schema: 
+                type: object
+                properties:
+                  success: 
+                    description: "Success of the archive to the scheduled export job"
+                    type: boolean
+                    example: false
+                  message:
+                    description: "A warning or error message associated with a failed export job archive"
+                    type: string
+                    example: "The input supplied is invalid: JSON format is unreadable"
+                  export_id:
+                    description: "The scheduled export job ID"
+                    type: string
+                    example: null
+        401:
+          description: "Domino API Key does not give you access to the Domino Compute Environment"
+          content:
+            application/json:
+              schema: 
+                type: object
+                properties:
+                  success: 
+                    description: "Success of the archive to the scheduled export job"
+                    type: boolean
+                    example: false
+                  message:
+                    description: "A warning or error message associated with a failed export job archive"
+                    type: string
+                    example: "Your Domino API Key does not give you access to specified Compute Environment"
+                  export_id:
+                    description: "The scheduled export job ID"
+                    type: string
+                    example: null
+        404:
+          description: "The specified export ID does not exist"
+          content:
+            application/json:
+              schema: 
+                type: object
+                properties:
+                  success: 
+                    description: "Success of the archive to the scheduled export job"
+                    type: boolean
+                    example: false
+                  message:
+                    description: "A warning or error message associated with a failed export job archive"
+                    type: string
+                    example: "The specified export ID does not exist"
+                  export_id:
+                    description: "The scheduled export job ID"
+                    type: string
+                    example: null
+        503:
+          description: "Service error encountered while archiving the export job"
+          content:
+            application/json:
+              schema: 
+                type: object
+                properties:
+                  success: 
+                    description: "Success of the archive to the scheduled export job"
+                    type: boolean
+                    example: false
+                  message:
+                    description: "A warning or error message associated with a failed export job archive"
+                    type: string
+                    example: "Disk is full"
+                  export_id:
+                    description: "The scheduled export job ID"
+                    type: string
+                    example: null
+  /v1/images/archive/{compute_environment_id}:
+    delete:
+      summary: "Archive an existing Compute Environment export job by the Domino Compute Environment ID"
+      tags:
+        - "Compute Environments"
+      parameters:
+        - in: path
+          name: compute_environment_id
+          description: "The Domino Compute Environment ID"
+          schema:
+            type: string
+          example: "5ac7e8ffe4b085124ffb64d6"
+          required: true
+        - in: header
+          name: X-Domino-Api-Key
+          description: "The Domino API Key to use for authentication"
+          schema:
+            type: string
+            example: "900a9b8611b9b11ec9f1a93cc758321603be3f9f84fabd87e6f5538f3c83dd7a"
+          required: true
+      responses:
+        200:
+          description: "Successful archive of export job"
+          content:
+            application/json:
+              schema: 
+                type: object
+                properties:
+                  success: 
+                    description: "Success of the archive to the scheduled export job"
+                    type: boolean
+                    example: true
+                  message:
+                    description: "A warning or error message associated with a failed export job archive"
+                    type: string
+                    example: null
+                  export_id:
+                    description: "The scheduled export job ID"
+                    type: string
+                    example: "cc03e747a6afbbcbf8be7668acfebee5"
+        400:
+          description: "Malformed input when trying to archive an existing job"
+          content:
+            application/json:
+              schema: 
+                type: object
+                properties:
+                  success: 
+                    description: "Success of the archive to the scheduled export job"
+                    type: boolean
+                    example: false
+                  message:
+                    description: "A warning or error message associated with a failed export job archive"
+                    type: string
+                    example: "The input supplied is invalid: JSON format is unreadable"
+                  export_id:
+                    description: "The scheduled export job ID"
+                    type: string
+                    example: null
+        401:
+          description: "Domino API Key does not give you access to the Domino Compute Environment"
+          content:
+            application/json:
+              schema: 
+                type: object
+                properties:
+                  success: 
+                    description: "Success of the archive to the scheduled export job"
+                    type: boolean
+                    example: false
+                  message:
+                    description: "A warning or error message associated with a failed export job archive"
+                    type: string
+                    example: "Your Domino API Key does not give you access to specified Compute Environment"
+                  export_id:
+                    description: "The scheduled export job ID"
+                    type: string
+                    example: null
+        404:
+          description: "The specified export ID does not exist"
+          content:
+            application/json:
+              schema: 
+                type: object
+                properties:
+                  success: 
+                    description: "Success of the archive to the scheduled export job"
+                    type: boolean
+                    example: false
+                  message:
+                    description: "A warning or error message associated with a failed export job archive"
+                    type: string
+                    example: "The specified export ID does not exist"
+                  export_id:
+                    description: "The scheduled export job ID"
+                    type: string
+                    example: null
+        503:
+          description: "Service error encountered while archiving the export job"
+          content:
+            application/json:
+              schema: 
+                type: object
+                properties:
+                  success: 
+                    description: "Success of the archive to the scheduled export job"
+                    type: boolean
+                    example: false
+                  message:
+                    description: "A warning or error message associated with a failed export job archive"
+                    type: string
+                    example: "Disk is full"
+                  export_id:
+                    description: "The scheduled export job ID"
+                    type: string
+                    example: null
